@@ -1,0 +1,89 @@
+from app import app
+from flask import Flask, redirect, url_for, render_template, request, flash, json
+import shutil
+from app.forms import PromptForm
+from bs4 import BeautifulSoup
+import urllib.request
+import urllib.parse
+import uuid
+
+serverAddress = "127.0.0.1:8188"
+
+
+#the home page
+@app.route("/", methods=['GET', 'POST'])
+def home():
+    return render_template("index.html")
+    print("home page")
+
+
+# the generate page
+@app.route("/generate", methods=['GET', 'POST'])
+def generate():
+    form = PromptForm()
+    if form.validate_on_submit():
+        myPositiveString = str(form.positivePrompt)
+        myNegativeString = str(form.negativePrompt)
+        mySeedString = str(form.seedPrompt)
+        soupPositive = BeautifulSoup(myPositiveString, 'html.parser')
+        soupNegative = BeautifulSoup(myNegativeString, 'html.parser')
+        soupSeed = BeautifulSoup(mySeedString, 'html.parser')
+
+        myStringDict = {
+            "positivePrompt": soupPositive.input.get("value"),
+            "negativePrompt": soupNegative.input.get("value"),
+            "seedPrompt": soupSeed.input.get("value")
+        }
+        print(myStringDict)
+        #copying the default pipeline and modifying it
+        pipelineSourceFile = 'defaultPipeline.json'
+        pipelineNew = 'sample.json'
+        shutil.copyfile(pipelineSourceFile, pipelineNew)
+
+        with open('sample.json') as f:
+            data = json.load(f)
+        data["44"]["inputs"]["text"] = soupPositive.input.get("value")
+        #print("Positive Prompt:", node['widgets_values'])
+        data["45"]["inputs"]["text"] = soupNegative.input.get("value")
+        #print("Negative Prompt:", node['widgets_values'])
+
+        with open('sample.json', 'w') as json_file:
+            json.dump(data, json_file, indent=2)
+
+        p = {"prompt": data}
+        JSON_Data = json.dumps(p).encode('utf-8')
+        #req = request.Request("http://127.0.0.1:8188/prompt", data=JSON_Data)
+        #request.urlopen(req)
+
+
+        req = urllib.request.Request("http://{}/prompt".format(serverAddress), data=JSON_Data)
+        return json.loads(urllib.request.urlopen(req).read())
+
+        #return redirect('/')
+    return render_template("generate.html", form=form)
+
+@app.route("/status", methods=['GET'])
+def status():
+    with urllib.request.urlopen("http://{}/history".format(serverAddress)) as response:
+        history = json.loads(response.read())
+
+    myPromptList = []
+    #return history
+
+    for key, value in history.items():
+        success = value['status']['status_str']
+        prompt_id = value['status']['messages'][0][1]['prompt_id']
+        seed = value["prompt"][2]["43"]["inputs"]["seed"]
+        displayedPositivePrompt = value["prompt"][2]["44"]['inputs']['text']
+        createdImgUrl = "../static/temp_images/temp/" + value["outputs"]["55"]["gifs"][0]['filename']
+        print(createdImgUrl)
+        #print(f"Prompt ID: {prompt_id}, Success: {success}, Seed: {seed}, Positive Prompt: {displayedPositivePrompt}")
+        myPromptsDict = {"endState":success,"Prompt_ID":prompt_id, "Seed":seed, "displayedPositivePrompt":displayedPositivePrompt, "createdImgUrl":createdImgUrl}
+        myPromptList.append(myPromptsDict)
+
+    #print(myPromptList)
+    return render_template("status.html", jobHistory=myPromptList)
+
+@app.route("/test", methods=['GET'])
+def test():
+    return '<img src="../static/temp_images/test2.png">'
